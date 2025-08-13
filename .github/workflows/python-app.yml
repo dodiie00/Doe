@@ -4,36 +4,20 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   push:
-    branches: [master]
+    branches: [ master ]
   pull_request:
-    types: [opened, synchronize, reopened, closed]
+    branches:
   workflow_dispatch:
-    inputs:
-      run_reason:
-        description: "Why are you running this workflow?"
-        required: false
 
 env:
-  GLOBAL_TIMEOUT: 900
   PY_COLORS: "1"
   TZ: "UTC"
+  GLOBAL_TIMEOUT: 900
 
 jobs:
   build-and-monitor:
     name: Build, Lint, and Run Stream Monitor
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        os: [ubuntu-latest, ubuntu-22.04]
-        python-version: ["3.12", "3.13"]
-        include:
-          - os: ubuntu-latest
-            extra-args: "--headless"
-          - os: ubuntu-22.04
-            extra-args: "--windowed"
-    runs-on: ${{ matrix.os }}
-
+    runs-on: ubuntu-latest
     timeout-minutes: 30
 
     steps:
@@ -42,10 +26,10 @@ jobs:
       with:
         fetch-depth: 2
 
-    - name: Set up Python ${{ matrix.python-version }}
+    - name: Set up Python 3.13
       uses: actions/setup-python@v5
       with:
-        python-version: ${{ matrix.python-version }}
+        python-version: "3.13"
         architecture: "x64"
 
     - name: Set Locale and Timezone
@@ -65,16 +49,19 @@ jobs:
     - name: Print Environment Info
       run: |
         echo "Python version: $(python --version)"
-        echo "OS: ${{ matrix.os }}"
+        echo "OS: $(lsb_release -d)"
         echo "TZ: $TZ"
         env
 
     - name: Install Python dependencies
       run: |
-        python -m pip install --upgrade pip wheel setuptools
-        pip install seleniumbase pyautogui pymongo python-xlib requests
-        pip install flake8
-        pip install -r requirements.txt || true
+        python -m pip install --upgrade pip
+        pip install --upgrade pip
+        pip install --upgrade wheel
+        pip install --upgrade seleniumbase
+        pip install --upgrade pyautogui
+        pip install --upgrade pymongo
+        pip install --upgrade python-xlib
 
     - name: Lint with flake8
       run: |
@@ -125,13 +112,13 @@ jobs:
         TZ: "UTC"
       run: |
         set -x
-        python dodie.py --debug --chrome --xvfb --screenshot ${{ matrix.extra-args }}
+        python dodie.py --debug --chrome --xvfb --screenshot
 
     - name: Upload screenshots as artifact
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: seleniumbase-screenshots-${{ matrix.os }}-py${{ matrix.python-version }}
+        name: seleniumbase-screenshots
         path: |
           ./latest_logs/
           ./seleniumbase_logs/
@@ -142,7 +129,7 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: workflow-logs-${{ matrix.os }}-py${{ matrix.python-version }}
+        name: workflow-logs
         path: |
           ./logs/
           ./output.log
@@ -151,7 +138,7 @@ jobs:
     - name: Print disk usage for debugging
       run: |
         df -h
-        du -sh ./*
+        du -sh ./* || true
 
     - name: Clean up orphaned files
       if: always()
@@ -161,14 +148,10 @@ jobs:
     - name: Notify on failure
       if: failure()
       run: |
-        echo "❌ Workflow failed on ${{ matrix.os }} / Python ${{ matrix.python-version }}"
-        # Here you could add curl to Discord/Slack webhook or similar for notifications
+        echo "❌ Workflow failed on $GITHUB_RUN_ID"
+        # Add your webhook or notification logic here
 
-  notify:
-    if: always()
-    runs-on: ubuntu-latest
-    needs: build-and-monitor
-    steps:
     - name: Notification summary
+      if: always()
       run: |
-        echo "Workflow for Stream Monitor completed at $(date -u)"
+        echo "✅ Workflow for Stream Monitor completed at $(date -u)"
