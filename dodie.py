@@ -122,7 +122,7 @@ def monitor_kick_and_switch_to_twitch(main_driver, username, tracker: WebDriverT
 
 # --- Main Script Execution --- #
 if __name__ == "__main__":
-    username = "brutalles"
+    username = "adinross"
     tracker = WebDriverTracker()
     with SB(uc=True, test=True) as main_driver:
         tracker.register(main_driver)
