@@ -1,0 +1,157 @@
+name: Complex Stream Monitor Workflow
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  push:
+    branches: [ master ]
+  pull_request:
+    branches:
+  workflow_dispatch:
+
+env:
+  PY_COLORS: "1"
+  TZ: "UTC"
+  GLOBAL_TIMEOUT: 900
+
+jobs:
+  build-and-monitor:
+    name: Build, Lint, and Run Stream Monitor
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
+
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
+        architecture: "x64"
+
+    - name: Set Locale and Timezone
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y tzdata locales lsb-release
+        sudo locale-gen en_US.UTF-8
+        sudo localectl set-locale LANG="en_US.UTF-8"
+        export LANG="en_US.UTF-8"
+        sudo update-locale
+        sudo timedatectl set-timezone UTC
+        locale -a
+        locale
+        localectl status
+        date
+
+    - name: Print Environment Info
+      run: |
+        echo "Python version: $(python --version)"
+        echo "OS: $(lsb_release -d)"
+        echo "TZ: $TZ"
+        env
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install --upgrade pip
+        pip install --upgrade wheel
+        pip install --upgrade seleniumbase
+        pip install --upgrade pyautogui
+        pip install --upgrade pymongo
+        pip install --upgrade python-xlib
+
+    - name: Lint with flake8
+      run: |
+        flake8 . --count --show-source --statistics --exclude=temp
+      continue-on-error: true
+
+    - name: Install Google Chrome
+      run: |
+        wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+        sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
+
+    - name: Check the console scripts interface
+      run: |
+        seleniumbase --version
+        sbase --version
+
+    - name: Install chromedriver
+      run: |
+        seleniumbase install chromedriver
+
+    - name: Install Cloudflare WARP
+      run: |
+        sudo apt update
+        sudo apt install -y curl
+        curl https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --dearmor -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+        echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+        sudo apt update
+        sudo apt install -y cloudflare-warp
+        sudo warp-cli --accept-tos registration new
+        sudo warp-cli --accept-tos connect
+        sleep 5
+        sudo warp-cli --accept-tos status
+
+    - name: List installed browsers and drivers
+      run: |
+        which google-chrome || true
+        which chromedriver || true
+        google-chrome --version || true
+        chromedriver --version || true
+
+    - name: Run dodie.py with advanced options
+      id: run-script
+      timeout-minutes: 20
+      env:
+        PY_COLORS: "1"
+        TZ: "UTC"
+      run: |
+        set -x
+        python dodie.py --debug --chrome --xvfb --screenshot
+
+    - name: Upload screenshots as artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: seleniumbase-screenshots
+        path: |
+          ./latest_logs/
+          ./seleniumbase_logs/
+          ./screenshots/
+        if-no-files-found: warn
+
+    - name: Archive logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: workflow-logs
+        path: |
+          ./logs/
+          ./output.log
+        if-no-files-found: ignore
+
+    - name: Print disk usage for debugging
+      run: |
+        df -h
+        du -sh ./* || true
+
+    - name: Clean up orphaned files
+      if: always()
+      run: |
+        rm -rf ./__pycache__ ./temp || true
+
+    - name: Notify on failure
+      if: failure()
+      run: |
+        echo "❌ Workflow failed on $GITHUB_RUN_ID"
+        # Add your webhook or notification logic here
+
+    - name: Notification summary
+      if: always()
+      run: |
+        echo "✅ Workflow for Stream Monitor completed at $(date -u)"
